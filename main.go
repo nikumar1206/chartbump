@@ -26,7 +26,7 @@ Flags:
   -changelog        fetch GitHub release notes for each outdated dependency
   -token string     GitHub token (falls back to GITHUB_TOKEN env, then: gh auth token)
   -verbose          show dependencies that are already up to date
-  -bump             write updated versions to Chart.yaml and run helm dependency update
+  -wet-run          write updated versions to Chart.yaml and run helm dependency update
   -h                show this help
 
 Output:
@@ -38,8 +38,8 @@ Examples:
   chartbump
   chartbump -charts /path/to/charts
   chartbump -only myapp,infra
-  chartbump -bump
-  chartbump -bump -only myapp
+  chartbump -wet-run
+  chartbump -wet-run -only myapp
   chartbump -changelog
   chartbump -pre -verbose
 `
@@ -61,7 +61,7 @@ func main() {
 	showChangelog := flag.Bool("changelog", false, "fetch GitHub release notes for outdated deps")
 	tokenFlag := flag.String("token", "", "GitHub token (overrides GITHUB_TOKEN env and gh auth token)")
 	verbose := flag.Bool("verbose", false, "show up-to-date dependencies too")
-	bump := flag.Bool("bump", false, "write updated versions to Chart.yaml and run helm dependency update")
+	bump := flag.Bool("wet-run", false, "write updated versions to Chart.yaml and run helm dependency update")
 	flag.Usage = func() { fmt.Fprint(os.Stderr, usage) }
 	flag.Parse()
 
