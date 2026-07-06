@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -20,10 +21,12 @@ Usage:
 
 Flags:
   -charts string    path to charts directory (default "./charts")
+  -only string      comma-separated chart folder names to process (default: all)
   -pre              include pre-release versions when finding latest
   -changelog        fetch GitHub release notes for each outdated dependency
   -token string     GitHub token (falls back to GITHUB_TOKEN env, then: gh auth token)
   -verbose          show dependencies that are already up to date
+  -bump             write updated versions to Chart.yaml and run helm dependency update
   -h                show this help
 
 Output:
@@ -34,6 +37,9 @@ Output:
 Examples:
   chartbump
   chartbump -charts /path/to/charts
+  chartbump -only myapp,infra
+  chartbump -bump
+  chartbump -bump -only myapp
   chartbump -changelog
   chartbump -pre -verbose
 `
@@ -50,10 +56,12 @@ type result struct {
 
 func main() {
 	chartsDir := flag.String("charts", "./charts", "path to charts directory")
+	only := flag.String("only", "", "comma-separated chart folder names to process (default: all)")
 	includePre := flag.Bool("pre", false, "include pre-release versions")
 	showChangelog := flag.Bool("changelog", false, "fetch GitHub release notes for outdated deps")
 	tokenFlag := flag.String("token", "", "GitHub token (overrides GITHUB_TOKEN env and gh auth token)")
 	verbose := flag.Bool("verbose", false, "show up-to-date dependencies too")
+	bump := flag.Bool("bump", false, "write updated versions to Chart.yaml and run helm dependency update")
 	flag.Usage = func() { fmt.Fprint(os.Stderr, usage) }
 	flag.Parse()
 
@@ -72,6 +80,24 @@ func main() {
 	if len(charts) == 0 {
 		fmt.Fprintf(os.Stderr, "no charts found in %s\n", *chartsDir)
 		os.Exit(1)
+	}
+
+	if *only != "" {
+		nameSet := map[string]bool{}
+		for n := range strings.SplitSeq(*only, ",") {
+			nameSet[strings.TrimSpace(n)] = true
+		}
+		var filtered []chart.Chart
+		for _, c := range charts {
+			if nameSet[c.Dir] {
+				filtered = append(filtered, c)
+			}
+		}
+		charts = filtered
+		if len(charts) == 0 {
+			fmt.Fprintf(os.Stderr, "no charts matched -only filter\n")
+			os.Exit(1)
+		}
 	}
 
 	var (
@@ -164,6 +190,38 @@ func main() {
 
 	if !anyOutput {
 		fmt.Println("all dependencies are up to date")
+		return
+	}
+
+	if *bump {
+		chartUpdates := make(map[string]map[string]string)
+		for _, r := range results {
+			if r.err != nil || r.current.Version == r.latest.Version {
+				continue
+			}
+			if chartUpdates[r.chart] == nil {
+				chartUpdates[r.chart] = make(map[string]string)
+			}
+			chartUpdates[r.chart][r.dep] = r.latest.Version
+		}
+		for _, chartName := range order {
+			updates, ok := chartUpdates[chartName]
+			if !ok {
+				continue
+			}
+			fmt.Printf("bumping %s\n", chartName)
+			if err := chart.UpdateVersions(*chartsDir, chartName, updates); err != nil {
+				fmt.Fprintf(os.Stderr, "  error updating Chart.yaml: %v\n", err)
+				continue
+			}
+			chartPath := filepath.Join(*chartsDir, chartName)
+			cmd := exec.Command("helm", "dependency", "update", chartPath)
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			if err := cmd.Run(); err != nil {
+				fmt.Fprintf(os.Stderr, "  helm dependency update failed: %v\n", err)
+			}
+		}
 		return
 	}
 
