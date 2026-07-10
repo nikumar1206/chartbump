@@ -14,7 +14,7 @@ import (
 	"github.com/nikhil/chartbump/internal/registry"
 )
 
-const usage = `chartbump - check for newer versions of Helm chart dependencies
+const usage = `chartbump - bump Helm chart dependencies to their latest versions
 
 Usage:
   chartbump [flags]
@@ -26,11 +26,13 @@ Flags:
   -changelog        fetch GitHub release notes for each outdated dependency
   -token string     GitHub token (falls back to GITHUB_TOKEN env, then: gh auth token)
   -verbose          show dependencies that are already up to date
-  -wet-run          write updated versions to Chart.yaml and run helm dependency update
+  -dry-run          show available updates without writing any changes
   -h                show this help
 
 Output:
-  Lists each dependency that has a newer version available, grouped by chart.
+  Updates each dependency to the latest version, grouped by chart, then runs
+  helm dependency update on each modified chart.
+  With -dry-run, only lists what would change without applying anything.
   Release dates are shown when available (HTTP repos only; OCI dates are unknown).
   With -changelog, output is piped through bat (or less) when stdout is a terminal.
 
@@ -38,8 +40,8 @@ Examples:
   chartbump
   chartbump -charts /path/to/charts
   chartbump -only myapp,infra
-  chartbump -wet-run
-  chartbump -wet-run -only myapp
+  chartbump -dry-run
+  chartbump -dry-run -only myapp
   chartbump -changelog
   chartbump -pre -verbose
 `
@@ -61,7 +63,7 @@ func main() {
 	showChangelog := flag.Bool("changelog", false, "fetch GitHub release notes for outdated deps")
 	tokenFlag := flag.String("token", "", "GitHub token (overrides GITHUB_TOKEN env and gh auth token)")
 	verbose := flag.Bool("verbose", false, "show up-to-date dependencies too")
-	bump := flag.Bool("wet-run", false, "write updated versions to Chart.yaml and run helm dependency update")
+	dryRun := flag.Bool("dry-run", false, "show available updates without writing any changes")
 	flag.Usage = func() { fmt.Fprint(os.Stderr, usage) }
 	flag.Parse()
 
@@ -193,44 +195,44 @@ func main() {
 		return
 	}
 
-	if *bump {
-		chartUpdates := make(map[string]map[string]string)
-		for _, r := range results {
-			if r.err != nil || r.current.Version == r.latest.Version {
-				continue
-			}
-			if chartUpdates[r.chart] == nil {
-				chartUpdates[r.chart] = make(map[string]string)
-			}
-			chartUpdates[r.chart][r.dep] = r.latest.Version
-		}
-		for _, chartName := range order {
-			updates, ok := chartUpdates[chartName]
-			if !ok {
-				continue
-			}
-			fmt.Printf("bumping %s\n", chartName)
-			if err := chart.UpdateVersions(*chartsDir, chartName, updates); err != nil {
-				fmt.Fprintf(os.Stderr, "  error updating Chart.yaml: %v\n", err)
-				continue
-			}
-			chartPath := filepath.Join(*chartsDir, chartName)
-			cmd := exec.Command("helm", "dependency", "update", chartPath)
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
-			if err := cmd.Run(); err != nil {
-				fmt.Fprintf(os.Stderr, "  helm dependency update failed: %v\n", err)
-			}
-		}
+	if *showChangelog && isTerminal() {
+		_ = pipeToPager(out.String())
+	} else {
+		fmt.Print(out.String())
+	}
+
+	if *dryRun {
 		return
 	}
 
-	if *showChangelog && isTerminal() {
-		if err := pipeToPager(out.String()); err == nil {
-			return
+	chartUpdates := make(map[string]map[string]string)
+	for _, r := range results {
+		if r.err != nil || r.current.Version == r.latest.Version {
+			continue
+		}
+		if chartUpdates[r.chart] == nil {
+			chartUpdates[r.chart] = make(map[string]string)
+		}
+		chartUpdates[r.chart][r.dep] = r.latest.Version
+	}
+	for _, chartName := range order {
+		updates, ok := chartUpdates[chartName]
+		if !ok {
+			continue
+		}
+		fmt.Printf("bumping %s\n", chartName)
+		if err := chart.UpdateVersions(*chartsDir, chartName, updates); err != nil {
+			fmt.Fprintf(os.Stderr, "  error updating Chart.yaml: %v\n", err)
+			continue
+		}
+		chartPath := filepath.Join(*chartsDir, chartName)
+		cmd := exec.Command("helm", "dependency", "update", chartPath)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "  helm dependency update failed: %v\n", err)
 		}
 	}
-	fmt.Print(out.String())
 }
 
 func isTerminal() bool {
