@@ -2,6 +2,9 @@
 
 CLI tool that inspects a directory of Helm charts and reports which dependencies have newer versions available.
 
+pretty much only made for me tbh, and working on Loco. there are likely more pragmatic and safer options for bumping helm charts
+through helm plugins or similar.
+
 ## Usage
 
 ```
