@@ -1,0 +1,40 @@
+version: 2
+
+project_name: chartbump
+
+builds:
+  - id: chartbump
+    main: .
+    binary: chartbump
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+
+archives:
+  - id: default
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Os }}_{{ .Arch }}
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  use: github
+
+release:
+  github:
+    owner: nikumar1206
+    name: chartbump

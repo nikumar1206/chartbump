@@ -1,0 +1,57 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+# Serialize releases so two pushes in quick succession can't compute the same
+# "next" tag and collide.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Compute next patch version
+        id: tag
+        run: |
+          set -euo pipefail
+          git fetch --tags --force
+          latest=$(git tag --list 'v*.*.*' --sort=-v:refname | head -n1)
+          if [ -z "$latest" ]; then
+            latest="v0.0.0"
+          fi
+          IFS='.' read -r major minor patch <<< "${latest#v}"
+          next="v${major}.${minor}.$((patch + 1))"
+          echo "new_tag=$next" >> "$GITHUB_OUTPUT"
+
+      # Tagged directly (rather than via a separate workflow triggered by the
+      # tag push) because a tag pushed with the default GITHUB_TOKEN does not
+      # itself trigger other workflow runs.
+      - name: Create and push tag
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "${{ steps.tag.outputs.new_tag }}"
+          git push origin "${{ steps.tag.outputs.new_tag }}"
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: latest
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
