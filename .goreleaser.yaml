@@ -33,6 +33,19 @@ checksum:
 changelog:
   sort: asc
   use: github
+  filters:
+    exclude:
+      - "^Merge pull request"
+      - "^Merge branch"
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\(.+\))??!?:.+$'
+      order: 0
+    - title: Fixes
+      regexp: '^.*?fix(\(.+\))??!?:.+$'
+      order: 1
+    - title: Other
+      order: 999
 
 release:
   github:
